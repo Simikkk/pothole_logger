@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harta gropilor</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --text: #1f1e1b; --muted: #6b6a64; --line: #e3e1d9;
+    --accent: #2f5d50;
+    --mica: #3b8f4a; --medie: #d38b16; --mare: #c63a32; --necunoscuta: #5b7fa6; --fixed: #8a8984;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #171715; --panel: #22221f; --text: #ecebe6; --muted: #a3a29b; --line: #3a3934;
+            --accent: #7fc4ad; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+               font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+           padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  .stats { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .chip { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); }
+  .chip b { color: var(--text); font-weight: 600; }
+
+  main { position: relative; min-height: 0; }
+  #map { position: absolute; inset: 0; }
+
+  .panel { position: absolute; z-index: 500; top: 12px; right: 12px; width: 300px;
+           max-height: calc(100% - 24px); overflow: auto; background: var(--panel);
+           border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+              margin: 16px 0 8px; font-weight: 600; }
+  .panel h2:first-child { margin-top: 0; }
+  .toggle-panel { display: none; }
+
+  label.row { display: flex; align-items: center; gap: 10px; padding: 6px 0; cursor: pointer; }
+  label.row input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .count { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+  select, .btn { width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line);
+                 background: var(--bg); color: var(--text); font: inherit; }
+  .btn { cursor: pointer; text-align: center; text-decoration: none; display: block; margin-top: 8px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  @media (prefers-color-scheme: dark) { .btn.primary { color: #10231d; } }
+  .btn:focus-visible, select:focus-visible, input:focus-visible, .street:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .streets { list-style: none; margin: 0; padding: 0; }
+  .street { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 6px; margin: 0 -6px;
+            border: 0; background: none; color: var(--text); font: inherit; text-align: left;
+            cursor: pointer; border-radius: 6px; }
+  .street:hover { background: var(--bg); }
+  .street .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { min-width: 22px; padding: 0 6px; border-radius: 999px; color: #fff; font-size: 12px;
+           text-align: center; font-variant-numeric: tabular-nums; }
+
+  .hint, .about { font-size: 13px; color: var(--muted); }
+  .about b { color: var(--text); }
+  .buses { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+  .buses li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  .buses .when { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .about ul { margin: 6px 0 0; padding-left: 18px; }
+  .about li { margin: 3px 0; }
+  .hint { font-size: 12px; margin-top: 8px; }
+
+  .banner { position: absolute; z-index: 600; left: 50%; top: 12px; transform: translateX(-50%);
+            background: var(--mare); color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 14px; display: none; }
+  .empty { position: absolute; z-index: 400; left: 50%; bottom: 24px; transform: translateX(-50%);
+           background: var(--panel); border: 1px solid var(--line); padding: 10px 14px; border-radius: 8px;
+           font-size: 14px; display: none; max-width: 90%; text-align: center; }
+
+  .popup h3 { margin: 0 0 2px; font-size: 15px; }
+  .popup .street-name { color: #6b6a64; font-size: 13px; margin-bottom: 6px; }
+  .popup .sev { display: inline-block; padding: 1px 8px; border-radius: 999px; color: #fff; font-size: 12px; }
+  .popup .warn { margin: 6px 0; padding: 4px 8px; border-radius: 6px; background: #fbe9e7; color: #8a2a23; font-size: 12px; }
+  .popup .dims { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
+  .popup .dims div { background: #f1efe8; border-radius: 6px; padding: 4px 2px; }
+  .popup .dims b { display: block; font-size: 16px; color: #1f1e1b; }
+  .popup .dims span { font-size: 11px; color: #6b6a64; }
+  .popup .note { margin: 6px 0; padding: 4px 8px; border-radius: 6px; background: #e8eef5; color: #2c4a6b; font-size: 12px; }
+  .popup table { border-collapse: collapse; margin: 6px 0; font-size: 13px; }
+  .popup td { padding: 1px 10px 1px 0; }
+  .popup td:first-child { color: #6b6a64; }
+  .popup .actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 6px; }
+  .popup .actions button { flex: 1; padding: 6px 8px; border-radius: 6px; border: 1px solid #d3d1c7;
+                           background: #fff; cursor: pointer; font: inherit; font-size: 12px; white-space: nowrap; }
+  .popup .actions button:hover { background: #f1efe8; }
+
+  @media (max-width: 700px) {
+    header h1 { font-size: 16px; }
+    .stats { margin-left: 0; width: 100%; }
+    .panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 65%;
+             border-radius: var(--radius) var(--radius) 0 0; transform: translateY(100%);
+             transition: transform .2s ease; }
+    .panel.open { transform: none; }
+    .toggle-panel { display: block; position: absolute; z-index: 550; right: 12px; bottom: 24px;
+                    width: auto; padding: 10px 16px; border-radius: 999px; margin: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Harta gropilor</h1>
+    <div class="stats" aria-live="polite">
+      <span class="chip">Gropi <b id="s-total">–</b></span>
+      <span class="chip">Confirmate <b id="s-confirmed">–</b></span>
+      <span class="chip">Severe <b id="s-mare">–</b></span>
+      <span class="chip">Reparate <b id="s-fixed">–</b></span>
+      <span class="chip" title="Mixtură asfaltică estimată pentru gropile confirmate">Asfalt necesar <b id="s-asphalt">–</b></span>
+    </div>
+  </header>
+
+  <main>
+    <div id="map" role="region" aria-label="Harta gropilor detectate"></div>
+    <div class="banner" id="banner" role="alert"></div>
+    <div class="empty" id="empty">Nicio groapă pentru filtrele alese.</div>
+
+    <button class="btn primary toggle-panel" id="togglePanel" aria-expanded="false" aria-controls="panel">Filtre</button>
+
+    <aside class="panel" id="panel" aria-label="Filtre și acțiuni">
+      <h2>Perioadă</h2>
+      <select id="days" aria-label="Perioadă">
+        <option value="7">Ultimele 7 zile</option>
+        <option value="30">Ultimele 30 de zile</option>
+        <option value="90">Ultimele 3 luni</option>
+        <option value="0" selected>Toate datele</option>
+      </select>
+
+      <h2>Adâncime</h2>
+      <label class="row"><input type="checkbox" data-sev="mare" checked><span class="dot" style="background:var(--mare)"></span>Mare, peste 6 cm<span class="count" id="c-mare">0</span></label>
+      <label class="row"><input type="checkbox" data-sev="medie" checked><span class="dot" style="background:var(--medie)"></span>Medie, 3–6 cm<span class="count" id="c-medie">0</span></label>
+      <label class="row"><input type="checkbox" data-sev="mica" checked><span class="dot" style="background:var(--mica)"></span>Mică, sub 3 cm<span class="count" id="c-mica">0</span></label>
+      <label class="row"><input type="checkbox" data-sev="necunoscuta" checked><span class="dot" style="background:var(--necunoscuta)"></span>Nemăsurată (posibil apă)<span class="count" id="c-necunoscuta">0</span></label>
+
+      <h2>Afișare</h2>
+      <label class="row"><input type="checkbox" id="onlyConfirmed">Doar gropi confirmate</label>
+      <label class="row"><input type="checkbox" id="showFixed">Arată și gropile reparate<span class="count" id="c-fixed">0</span></label>
+      <label class="row"><input type="checkbox" id="heat">Hartă de densitate</label>
+      <p class="hint">Cerc plin = confirmată (minimum 2 treceri). Cerc punctat = o singură detecție. Contur negru gros = raportată. Gri = reparată.</p>
+
+      <h2>Străzi cu cele mai multe gropi</h2>
+      <ul class="streets" id="streets"></ul>
+      <p class="hint" id="streetsHint"></p>
+
+      <h2>Raport pentru primărie</h2>
+      <a class="btn primary" id="export" href="/api/report.csv">Descarcă raport CSV</a>
+      <button class="btn" id="refresh">Reîncarcă datele</button>
+      <p class="hint" id="updated"></p>
+
+      <h2>Autobuze</h2>
+      <ul class="buses" id="buses"></ul>
+      <p class="hint" id="busesHint"></p>
+
+      <h2>Despre date</h2>
+      <div class="about">
+        <b>Măsurăm drumul, nu oamenii.</b>
+        <ul>
+          <li>Datele vin doar de la autobuzele orașului, identificate prin cod (ex. bus-001).</li>
+          <li>Senzorii privesc în jos, spre asfalt: nu există camere și nu se înregistrează persoane.</li>
+          <li>Nu se salvează traseele, doar locurile unde a fost măsurată o groapă.</li>
+        </ul>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script>
+const COLORS = { mica: '#3b8f4a', medie: '#d38b16', mare: '#c63a32', necunoscuta: '#5b7fa6' };
+const FIXED = '#8a8984';
+const LABELS = { mica: 'Mică', medie: 'Medie', mare: 'Mare', necunoscuta: 'Nemăsurată' };
+const BUS_STATE = { ok: ['Funcționează', '#3b8f4a'], senzor_murdar: ['Senzor murdar', '#d38b16'],
+                    fara_gps: ['Fără GPS', '#d38b16'], offline: ['Offline', '#8a8984'] };
+const STATUS = { semnalata: 'Semnalată', raportata: 'Raportată la primărie', reparata: 'Reparată' };
+const NEXT_ACTIONS = {
+  semnalata: [['raportata', 'Am raportat-o'], ['reparata', 'E reparată']],
+  raportata: [['reparata', 'E reparată'], ['semnalata', 'Anulează raportarea']],
+  reparata:  [['semnalata', 'Nu e reparată']],
+};
+const HEAT_WEIGHT = { mica: 0.35, medie: 0.65, mare: 1, necunoscuta: 0.5 };
+const num = (v, d = 0) => v === null || v === undefined ? '–' : Number(v).toLocaleString('ro-RO', { maximumFractionDigits: d });
+const ago = ts => { const m = Math.round((Date.now() / 1000 - ts) / 60);
+  return m < 1 ? 'acum' : m < 60 ? `acum ${m} min` : m < 1440 ? `acum ${Math.round(m / 60)} h` : `acum ${Math.round(m / 1440)} zile`; };
+
+const map = L.map('map', { zoomControl: true }).setView([45.6427, 25.5887], 13); // Brașov
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; contribuitori OpenStreetMap'
+}).addTo(map);
+
+const markerLayer = L.layerGroup().addTo(map);
+const markersById = new Map();
+let heatLayer = null;
+let potholes = [];
+let firstLoad = true;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtDate = ts => new Date(ts * 1000).toLocaleString('ro-RO', { dateStyle: 'medium', timeStyle: 'short' });
+
+function showBanner(msg) {
+  const b = $('banner');
+  b.textContent = msg;
+  b.style.display = msg ? 'block' : 'none';
+}
+
+function activeFilters() {
+  const sev = new Set([...document.querySelectorAll('[data-sev]')].filter(c => c.checked).map(c => c.dataset.sev));
+  return { sev, onlyConfirmed: $('onlyConfirmed').checked, showFixed: $('showFixed').checked, heat: $('heat').checked };
+}
+
+function popupHtml(p) {
+  const color = p.status === 'reparata' ? FIXED : COLORS[p.severity];
+  const gmaps = `https://www.google.com/maps?q=${p.lat},${p.lon}`;
+  const street = p.street === null ? 'Se caută strada…' : (p.street || 'Stradă fără nume');
+  const buttons = NEXT_ACTIONS[p.status].map(([st, label]) =>
+    `<button type="button" data-status="${st}" data-lat="${p.lat}" data-lon="${p.lon}">${label}</button>`).join('');
+  return `<div class="popup">
+    <h3>Groapa #${p.id}</h3>
+    <div class="street-name">${esc(street)}</div>
+    <span class="sev" style="background:${color}">${LABELS[p.severity]}</span>
+    ${p.confirmed ? '' : ' <small>(neconfirmată)</small>'}
+    ${p.reappeared ? '<div class="warn">A reapărut după ce a fost marcată reparată.</div>' : ''}
+    ${p.depth_cm === null
+      ? '<div class="note">Simțită doar de accelerometru, probabil plină cu apă. Va fi măsurată la o trecere pe uscat.</div>'
+      : `<div class="dims">
+           <div><b>${num(p.depth_cm, 1)} cm</b><span>adâncime</span></div>
+           <div><b>${num(p.length_cm)} cm</b><span>lungime</span></div>
+           <div><b>${num(p.width_cm)} cm</b><span>lățime min.</span></div>
+         </div>`}
+    <table>
+      <tr><td>Stare</td><td><b>${STATUS[p.status]}</b>${p.status_changed_at ? ' din ' + fmtDate(p.status_changed_at) : ''}</td></tr>
+      ${p.asphalt_kg !== null ? `<tr><td>Asfalt estimat</td><td>~${num(p.asphalt_kg)} kg</td></tr>` : ''}
+      <tr><td>Treceri distincte</td><td>${p.passes}</td></tr>
+      <tr><td>Văzută de</td><td>${p.buses.map(esc).join(', ')}</td></tr>
+      <tr><td>Ultima dată</td><td>${fmtDate(p.last_seen)}</td></tr>
+    </table>
+    <div class="actions">${buttons}</div>
+    <a href="${gmaps}" target="_blank" rel="noopener">Deschide în Google Maps</a>
+  </div>`;
+}
+
+function visiblePotholes() {
+  const f = activeFilters();
+  return potholes.filter(p => f.sev.has(p.severity) && (!f.onlyConfirmed || p.confirmed)
+                              && (f.showFixed || p.status !== 'reparata'));
+}
+
+function render() {
+  const f = activeFilters();
+  const visible = visiblePotholes();
+
+  markerLayer.clearLayers();
+  markersById.clear();
+  if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+
+  if (f.heat) {
+    heatLayer = L.heatLayer(visible.filter(p => p.status !== 'reparata')
+                                   .map(p => [p.lat, p.lon, HEAT_WEIGHT[p.severity]]),
+                            { radius: 25, blur: 18, maxZoom: 17 }).addTo(map);
+  } else {
+    // reparatele desenate primele (dedesubt), cele grave ultimele (deasupra)
+    const rank = p => p.status === 'reparata' ? -1 : { mica: 0, necunoscuta: 1, medie: 2, mare: 3 }[p.severity];
+    [...visible].sort((a, b) => rank(a) - rank(b))
+      .forEach(p => {
+        const fixed = p.status === 'reparata';
+        const color = fixed ? FIXED : COLORS[p.severity];
+        const m = L.circleMarker([p.lat, p.lon], {
+          radius: 6 + Math.min(p.passes, 5) * 1.5,
+          color: p.status === 'raportata' ? '#1f1e1b' : color,
+          weight: p.status === 'raportata' ? 3.5 : 2,
+          fillColor: color,
+          fillOpacity: fixed ? 0.35 : (p.confirmed ? 0.75 : 0.15),
+          dashArray: p.confirmed || fixed ? null : '3 3'
+        }).bindPopup(popupHtml(p))
+          .bindTooltip(`${fixed ? 'Reparată' : p.depth_cm !== null ? num(p.depth_cm, 1) + ' cm' : 'Nemăsurată'} · ${p.street || 'stradă necunoscută'}`)
+          .addTo(markerLayer);
+        markersById.set(p.id, m);
+      });
+  }
+
+  $('empty').style.display = visible.length ? 'none' : 'block';
+  $('empty').textContent = potholes.length
+    ? 'Nicio groapă pentru filtrele alese.'
+    : 'Încă nu există date. Așteaptă primele autobuze sau pornește demo-ul.';
+
+  if (firstLoad && visible.length) {
+    map.fitBounds(L.latLngBounds(visible.map(p => [p.lat, p.lon])).pad(0.1));
+    firstLoad = false;
+  }
+}
+
+function renderStats(s) {
+  $('s-total').textContent = s.potholes;
+  $('s-confirmed').textContent = s.confirmed;
+  $('s-mare').textContent = s.by_severity.mare;
+  $('s-fixed').textContent = s.by_status.reparata;
+  $('c-fixed').textContent = s.by_status.reparata;
+  $('s-asphalt').textContent = s.asphalt_kg >= 1000 ? num(s.asphalt_kg / 1000, 1) + ' t' : num(s.asphalt_kg) + ' kg';
+  for (const k of Object.keys(LABELS)) $('c-' + k).textContent = s.by_severity[k];
+}
+
+function renderBuses(list) {
+  const ul = $('buses');
+  ul.innerHTML = '';
+  list.forEach(b => {
+    const [label, color] = BUS_STATE[b.state];
+    const extra = b.state === 'senzor_murdar' ? ` (nr. ${b.dirty_sensors.join(', ')})` : '';
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="dot" style="background:${color}"></span><b>${esc(b.device_id)}</b>
+      <span>${label}${extra}</span><span class="when">${ago(b.last_seen)}</span>`;
+    ul.appendChild(li);
+  });
+  const bad = list.filter(b => b.state !== 'ok').length;
+  $('busesHint').textContent = !list.length ? 'Niciun autobuz conectat încă.'
+    : bad ? `${bad} din ${list.length} au nevoie de atenție.` : `Toate cele ${list.length} funcționează.`;
+}
+
+function renderStreets(data) {
+  const ul = $('streets');
+  ul.innerHTML = '';
+  data.streets.slice(0, 8).forEach(s => {
+    const li = document.createElement('li');
+    const badges = ['mare', 'medie', 'mica'].filter(k => s[k] > 0)
+      .map(k => `<span class="badge" style="background:${COLORS[k]}" title="${LABELS[k]}">${s[k]}</span>`).join('');
+    li.innerHTML = `<button class="street" type="button" aria-label="${esc(s.street)}: ${s.total} gropi">
+      <span class="name">${esc(s.street)}</span>${badges}</button>`;
+    li.firstElementChild.addEventListener('click', () => focusStreet(s.ids));
+    ul.appendChild(li);
+  });
+  $('streetsHint').textContent =
+    (!data.streets.length && !data.pending ? 'Nicio groapă confirmată încă.' : '') +
+    (data.pending ? ` Se caută numele străzilor (${data.pending} rămase)…` : '') +
+    (data.streets.length ? ' Apasă pe o stradă ca s-o vezi pe hartă.' : '');
+}
+
+function focusStreet(ids) {
+  const pts = potholes.filter(p => ids.includes(p.id));
+  if (!pts.length) return;
+  if (pts.length === 1) map.setView([pts[0].lat, pts[0].lon], 17);
+  else map.fitBounds(L.latLngBounds(pts.map(p => [p.lat, p.lon])).pad(0.3));
+  const m = markersById.get(pts[0].id);
+  if (m) m.openPopup();
+  if (window.innerWidth <= 700) $('togglePanel').click();
+}
+
+async function setStatus(lat, lon, status) {
+  try {
+    const r = await fetch('/api/potholes/status', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon, status })
+    });
+    if (!r.ok) throw r;
+    map.closePopup();
+    await load();
+  } catch (e) {
+    showBanner('Nu am putut salva starea. Verifică dacă serverul rulează.');
+  }
+}
+
+// butoanele din popup sunt create dinamic, deci ascult pe tot documentul
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('.popup [data-status]');
+  if (b) setStatus(+b.dataset.lat, +b.dataset.lon, b.dataset.status);
+});
+
+async function load() {
+  const days = $('days').value;
+  $('export').href = `/api/report.csv?days=${days}` + ($('onlyConfirmed').checked ? '&confirmed=1' : '');
+  try {
+    const get = url => fetch(url).then(r => { if (!r.ok) throw r; return r.json(); });
+    const [ph, st, sts, dev] = await Promise.all([
+      get(`/api/potholes?days=${days}`), get(`/api/stats?days=${days}`), get(`/api/streets?days=${days}`),
+      get('/api/devices')
+    ]);
+    potholes = ph.potholes;
+    renderStats(st);
+    renderStreets(sts);
+    renderBuses(dev.devices);
+    render();
+    showBanner('');
+    $('updated').textContent = 'Actualizat la ' + new Date().toLocaleTimeString('ro-RO');
+  } catch (err) {
+    showBanner('Nu pot încărca datele de pe server. Verifică dacă serverul rulează.');
+  }
+}
+
+document.querySelectorAll('[data-sev]').forEach(c => c.addEventListener('change', render));
+$('onlyConfirmed').addEventListener('change', () => { render(); load(); });
+$('showFixed').addEventListener('change', render);
+$('heat').addEventListener('change', render);
+$('days').addEventListener('change', () => { firstLoad = true; load(); });
+$('refresh').addEventListener('click', load);
+$('togglePanel').addEventListener('click', () => {
+  const open = $('panel').classList.toggle('open');
+  $('togglePanel').setAttribute('aria-expanded', open);
+  $('togglePanel').textContent = open ? 'Închide' : 'Filtre';
+});
+
+load();
+// cât timp se caută numele străzilor reîncarc mai des
+setInterval(() => { if (!document.querySelector('.leaflet-popup')) load(); }, 15000);
+</script>
+</body>
+</html>
